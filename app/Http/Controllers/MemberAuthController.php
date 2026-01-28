@@ -1,0 +1,59 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use App\Models\Member;
+
+class MemberAuthController extends Controller
+{
+    public function showLoginForm()
+    {
+        return view('member.login');
+    }
+
+    public function login(Request $request)
+    {
+        $credentials = $request->validate([
+            'member_id' => 'required',
+            'password' => 'required',
+        ]);
+
+        $member = Member::where('member_id', $credentials['member_id'])->first();
+
+        // Check if member exists and verify password
+        // SLiMS uanlly uses SHA256 to hash 'mpasswd'
+        if ($member && hash('sha256', $credentials['password']) === $member->mpasswd) {
+            Auth::guard('member')->login($member);
+            $request->session()->regenerate();
+            return redirect()->intended('/member/dashboard');
+        }
+
+        // Add support for legacy MD5 if SHA256 fails (common in older SLiMS)
+        if ($member && md5($credentials['password']) === $member->mpasswd) {
+            Auth::guard('member')->login($member);
+            $request->session()->regenerate();
+            return redirect()->intended('/member/dashboard');
+        }
+
+        // 3. Try generic Laravel hashing (Robust Fallback)
+        if ($member && \Illuminate\Support\Facades\Hash::check($credentials['password'], $member->mpasswd)) {
+            Auth::guard('member')->login($member);
+            $request->session()->regenerate();
+            return redirect()->intended('/member/dashboard');
+        }
+
+        return back()->withErrors([
+            'member_id' => 'The provided credentials do not match our records.',
+        ])->onlyInput('member_id');
+    }
+
+    public function logout(Request $request)
+    {
+        Auth::guard('member')->logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+        return redirect('/');
+    }
+}
